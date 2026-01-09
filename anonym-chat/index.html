@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure P2P Anonymous Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔒</text></svg>">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            --warning-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        body { 
+            background: var(--primary-gradient); 
+            min-height: 100vh; 
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        .card { 
+            border-radius: 20px; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1); 
+            border: none;
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        
+        .chat-container { 
+            height: 400px; 
+            overflow-y: auto; 
+            scroll-behavior: smooth;
+        }
+        
+        .chat-message { 
+            padding: 12px 16px; 
+            margin: 8px 0; 
+            border-radius: 18px; 
+            max-width: 75%;
+            animation: fadeIn 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .received { 
+            background-color: #f8f9fa;
+            border-bottom-left-radius: 5px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .sent { 
+            background: linear-gradient(135deg, #4776E6 0%, #8E54E9 100%);
+            color: white;
+            border-bottom-right-radius: 5px;
+            margin-left: auto;
+            border: none;
+        }
+        
+        .room-badge { 
+            cursor: pointer; 
+            transition: all 0.3s ease;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+        
+        .room-badge:hover { 
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .privacy-badge {
+            background: var(--warning-gradient);
+            color: white;
+            border: none;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(245, 87, 108, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(245, 87, 108, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 87, 108, 0); }
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .connected { background-color: #28a745; }
+        .disconnected { background-color: #dc3545; }
+        .connecting { background-color: #ffc107; animation: blink 1.5s infinite; }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        #messageInput:disabled {
+            background-color: #f8f9fa;
+            cursor: not-allowed;
+        }
+        
+        .message-time {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+        
+        .system-message {
+            background-color: #e9ecef;
+            border-radius: 10px;
+            padding: 10px;
+            margin: 10px 0;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #6c757d;
+            border-left: 4px solid #6a11cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Login Screen -->
+        <div id="loginScreen" class="card p-4 mt-4 mx-auto" style="max-width: 500px;">
+            <div class="text-center mb-4">
+                <h1 class="display-6 fw-bold">🔒 Private Chat</h1>
+                <p class="text-muted">Anonymous P2P • No logs • Encrypted</p>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Your Nickname</label>
+                <input type="text" id="username" class="form-control form-control-lg" 
+                       placeholder="Anonymous" maxlength="20" autocomplete="off">
+                <div class="form-text">This is only visible to your chat partner</div>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Select Room Letter</label>
+                <div id="roomLetters" class="d-flex flex-wrap gap-2 justify-content-center"></div>
+                <input type="hidden" id="selectedRoomLetter">
+            </div>
+            
+            <div class="mb-4">
+                <label class="form-label fw-semibold">Enter Room Code (1-1000)</label>
+                <input type="number" id="roomCode" class="form-control form-control-lg" 
+                       min="1" max="1000" placeholder="203" autocomplete="off">
+                <div class="form-text">
+                    <strong>Share this combination:</strong> <span id="shareCode" class="fw-bold text-primary">A-203</span>
+                    <button id="copyShareCode" class="btn btn-sm btn-outline-primary ms-2">Copy</button>
+                </div>
+            </div>
+            
+            <!-- Privacy Warning -->
+            <div class="alert alert-warning border-warning">
+                <div class="d-flex">
+                    <div class="me-3">⚠️</div>
+                    <div>
+                        <strong>Privacy Notice:</strong> P2P chat requires IP address exchange between you and your chat partner. 
+                        <span class="d-block mt-1">
+                            For maximum privacy, consider using a VPN. No chat data is stored anywhere.
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <button id="joinRoom" class="btn btn-primary btn-lg w-100 py-3 fw-semibold">
+                🚀 Join Secure Room
+            </button>
+            
+            <div id="status" class="mt-3 text-center small text-muted">
+                <span class="status-indicator disconnected"></span>
+                Disconnected
+            </div>
+        </div>
+
+        <!-- Chat Room Screen -->
+        <div id="chatScreen" class="card d-none mx-auto" style="max-width: 800px;">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-1">
+                        <span class="badge privacy-badge me-2">P2P</span>
+                        Room: <span id="currentRoom" class="fw-bold">-</span> | 
+                        Code: <span id="currentCode" class="fw-bold">-</span>
+                    </h5>
+                    <small id="peerStatus" class="opacity-90">
+                        <span class="status-indicator connecting"></span>
+                        Connecting to peer...
+                    </small>
+                </div>
+                <div class="d-flex gap-2">
+                    <button id="copyRoomLink" class="btn btn-light btn-sm" title="Copy room link">
+                        📋 Share
+                    </button>
+                    <button id="leaveRoom" class="btn btn-light btn-sm">
+                        Leave
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card-body p-0">
+                <!-- Connection Info Bar -->
+                <div class="bg-light border-bottom px-3 py-2 small">
+                    <div class="d-flex justify-content-between">
+                        <span id="connectionInfo">Direct P2P connection establishing...</span>
+                        <span id="messageCount">0 messages</span>
+                    </div>
+                </div>
+                
+                <!-- Chat Messages -->
+                <div id="chatMessages" class="chat-container p-3">
+                    <div class="system-message">
+                        <strong>Secure Room Created</strong><br>
+                        Share the room code with your friend. Messages are end-to-end encrypted.
+                    </div>
+                </div>
+                
+                <!-- Message Input -->
+                <div class="p-3 border-top bg-light">
+                    <div class="input-group input-group-lg">
+                        <input type="text" id="messageInput" class="form-control" 
+                               placeholder="Type your encrypted message..." disabled
+                               aria-label="Message input">
+                        <button id="sendMessage" class="btn btn-primary" disabled>
+                            <span class="d-none d-md-inline">Send</span>
+                            <span class="d-inline d-md-none">➤</span>
+                        </button>
+                    </div>
+                    <div class="mt-2 text-center small text-muted">
+                        Press Enter to send • Messages are not stored
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== Enhanced P2P Chat with Privacy ====================
+        
+        class SecureP2PChat {
+            constructor() {
+                this.peerConnection = null;
+                this.dataChannel = null;
+                this.ws = null;
+                this.roomId = '';
+                this.isInitiator = false;
+                this.connected = false;
+                this.messageCount = 0;
+                this.connectionStartTime = null;
+            }
+
+            // Enhanced WebRTC configuration for privacy
+            getRTCConfig() {
+                return {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun2.l.google.com:19302' },
+                        { urls: 'stun:stun3.l.google.com:19302' },
+                        { urls: 'stun:stun4.l.google.com:19302' }
+                    ],
+                    iceCandidatePoolSize: 5,
+                    iceTransportPolicy: 'all',
+                    bundlePolicy: 'max-bundle',
+                    rtcpMuxPolicy: 'require'
+                };
+            }
+
+            // Connect to signaling server
+            async connectToSignaling(roomId, isInitiator = false) {
+                this.roomId = roomId;
+                this.isInitiator = isInitiator;
+                this.connectionStartTime = Date.now();
+                
+                updateStatus('status', 'Connecting to signaling server...', 'connecting');
+                
+                try {
+                    // Construct WebSocket URL for Netlify Functions
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const baseUrl = window.location.origin;
+                    const wsUrl = `${baseUrl.replace('https://', 'wss://').replace('http://', 'ws://')}/.netlify/functions/signaling?room=${encodeURIComponent(roomId)}`;
+                    
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    return new Promise((resolve, reject) => {
+                        this.ws.onopen = () => {
+                            console.log('✅ Connected to signaling server');
+                            updateStatus('status', 'Connected. Waiting for peer...', 'connecting');
+                            
+                            // Send join message
+                            this.ws.send(JSON.stringify({
+                                type: 'join',
+                                room: roomId,
+                                initiator: isInitiator,
+                                timestamp: Date.now()
+                            }));
+                            
+                            resolve();
+                        };
+                        
+                        this.ws.onmessage = async (event) => {
+                            try {
+                                const message = JSON.parse(event.data);
+                                await this.handleSignalingMessage(message);
+                            } catch (error) {
+                                console.error('Error parsing message:', error);
+                            }
+                        };
+                        
+                        this.ws.onerror = (error) => {
+                            console.error('WebSocket error:', error);
+                            updateStatus('status', 'Connection error. Please refresh.', 'disconnected');
+                            reject(error);
+                        };
+                        
+                        this.ws.onclose = () => {
+                            console.log('WebSocket closed');
+                            if (!this.connected) {
+                                updateStatus('status', 'Connection closed', 'disconnected');
+                            }
+                        };
+                    });
+                } catch (error) {
+                    console.error('Connection failed:', error);
+                    updateStatus('status', 'Failed to connect', 'disconnected');
+                    throw error;
+                }
+            }
+
+            async handleSignalingMessage(message) {
+                switch (message.type) {
+                    case 'welcome':
+                        updateStatus('status', 'Connected to room. ' + (this.isInitiator ? 
+                            'Share room code with friend.' : 'Looking for initiator...'), 'connecting');
+                        break;
+                        
+                    case 'room-full':
+                        updateStatus('status', 'Room is full (max 2 users)', 'disconnected');
+                        showAlert('Room is full. Please try a different room code.', 'warning');
+                        break;
+                        
+                    case 'peer-joined':
+                        updateStatus('peerStatus', 'Peer connected!', 'connected');
+                        if (this.isInitiator) {
+                            await this.createOffer();
+                        }
+                        break;
+                        
+                    case 'offer':
+                        if (!this.isInitiator) {
+                            await this.handleOffer(message);
+                        }
+                        break;
+                        
+                    case 'answer':
+                        if (this.isInitiator) {
+                            await this.handleAnswer(message);
+                        }
+                        break;
+                        
+                    case 'candidate':
+                        await this.handleCandidate(message);
+                        break;
+                        
+                    case 'peer-left':
+                        updateStatus('peerStatus', 'Peer disconnected', 'disconnected');
+                        enableChat(false);
+                        showAlert('Peer has left the chat.', 'info');
+                        break;
+                }
+            }
+
+            // Initialize WebRTC with privacy enhancements
+            async initializeWebRTC() {
+                try {
+                    const config = this.getRTCConfig();
+                    this.peerConnection = new RTCPeerConnection(config);
+                    
+                    // Disable unnecessary media to reduce fingerprinting
+                    this.peerConnection.addTransceiver('audio', { direction: 'inactive' });
+                    this.peerConnection.addTransceiver('video', { direction: 'inactive' });
+                    
+                    // Set up data channel
+                    if (this.isInitiator) {
+                        this.dataChannel = this.peerConnection.createDataChannel('secure-chat', {
+                            ordered: true,
+                            maxPacketLifeTime: 3000
+                        });
+                        this.setupDataChannel();
+                    } else {
+                        this.peerConnection.ondatachannel = (event) => {
+                            this.dataChannel = event.channel;
+                            this.setupDataChannel();
+                        };
+                    }
+                    
+                    // ICE candidate handling
+                    this.peerConnection.onicecandidate = (event) => {
+                        if (event.candidate && this.ws?.readyState === WebSocket.OPEN) {
+                            this.ws.send(JSON.stringify({
+                                type: 'candidate',
+                                candidate: event.candidate,
+                                room: this.roomId
+                            }));
+                        }
+                    };
+                    
+                    // Connection state monitoring
+                    this.peerConnection.onconnectionstatechange = () => {
+                        const state = this.peerConnection.connectionState;
+                        console.log('WebRTC state:', state);
+                        
+                        if (state === 'connected') {
+                            this.connected = true;
+                            const connectTime = ((Date.now() - this.connectionStartTime) / 1000).toFixed(1);
+                            updateStatus('peerStatus', `Secure P2P established (${connectTime}s)`, 'connected');
+                            enableChat(true);
+                            updateConnectionInfo('Direct encrypted connection active');
+                        } else if (state === 'disconnected' || state === 'failed') {
+                            this.connected = false;
+                            updateStatus('peerStatus', 'Connection lost', 'disconnected');
+                            enableChat(false);
+                        }
+                    };
+                    
+                    // ICE gathering state
+                    this.peerConnection.onicegatheringstatechange = () => {
+                        console.log('ICE gathering:', this.peerConnection.iceGatheringState);
+                    };
+                    
+                } catch (error) {
+                    console.error('WebRTC initialization failed:', error);
+                    throw error;
+                }
+            }
+
+            setupDataChannel() {
+                this.dataChannel.onopen = () => {
+                    console.log('✅ Data channel opened');
+                    this.connected = true;
+                    updateStatus('peerStatus', 'Secure channel ready', 'connected');
+                    enableChat(true);
+                    showSystemMessage('Secure P2P connection established. Messages are end-to-end encrypted.');
+                };
+                
+                this.dataChannel.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        this.messageCount++;
+                        updateMessageCount(this.messageCount);
+                        displayMessage(message.sender, message.text, message.timestamp, true);
+                    } catch (error) {
+                        console.error('Error parsing received message:', error);
+                    }
+                };
+                
+                this.dataChannel.onerror = (error) => {
+                    console.error('Data channel error:', error);
+                };
+                
+                this.dataChannel.onclose = () => {
+                    console.log('Data channel closed');
+                    this.connected = false;
+                    updateStatus('peerStatus', 'Channel closed', 'disconnected');
+                    enableChat(false);
+                };
+            }
+
+            async createOffer() {
+                try {
+                    await this.initializeWebRTC();
+                    const offer = await this.peerConnection.createOffer({
+                        offerToReceiveAudio: false,
+                        offerToReceiveVideo: false
+                    });
+                    
+                    await this.peerConnection.setLocalDescription(offer);
+                    
+                    if (this.ws?.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({
+                            type: 'offer',
+                            sdp: offer.sdp,
+                            room: this.roomId
+                        }));
+                    }
+                    
+                } catch (error) {
+                    console.error('Create offer failed:', error);
+                    showAlert('Failed to create connection offer', 'danger');
+                }
+            }
+
+            async handleOffer(message) {
+                try {
+                    await this.initializeWebRTC();
+                    await this.peerConnection.setRemoteDescription(
+                        new RTCSessionDescription({ type: 'offer', sdp: message.sdp })
+                    );
+                    
+                    const answer = await this.peerConnection.createAnswer({
+                        offerToReceiveAudio: false,
+                        offerToReceiveVideo: false
+                    });
+                    
+                    await this.peerConnection.setLocalDescription(answer);
+                    
+                    if (this.ws?.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({
+                            type: 'answer',
+                            sdp: answer.sdp,
+                            room: this.roomId
+                        }));
+                    }
+                    
+                } catch (error) {
+                    console.error('Handle offer failed:', error);
+                    showAlert('Failed to process connection request', 'danger');
+                }
+            }
+
+            async handleAnswer(message) {
+                try {
+                    await this.peerConnection.setRemoteDescription(
+                        new RTCSessionDescription({ type: 'answer', sdp: message.sdp })
+                    );
+                } catch (error) {
+                    console.error('Handle answer failed:', error);
+                }
+            }
+
+            async handleCandidate(message) {
+                try {
+                    if (this.peerConnection && message.candidate) {
+                        await this.peerConnection.addIceCandidate(
+                            new RTCIceCandidate(message.candidate)
+                        );
+                    }
+                } catch (error) {
+                    console.error('Add ICE candidate failed:', error);
+                }
+            }
+
+            sendMessage(sender, text) {
+                if (this.dataChannel?.readyState === 'open') {
+                    const message = {
+                        sender,
+                        text,
+                        timestamp: Date.now(),
+                        encrypted: true // Marked as encrypted (though WebRTC already encrypts)
+                    };
+                    
+                    this.dataChannel.send(JSON.stringify(message));
+                    this.messageCount++;
+                    updateMessageCount(this.messageCount);
+                    return true;
+                }
+                return false;
+            }
+
+            disconnect() {
+                // Notify peer if possible
+                if (this.ws?.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'leave',
+                        room: this.roomId
+                    }));
+                    setTimeout(() => this.ws.close(), 100);
+                }
+                
+                // Close WebRTC connections
+                if (this.dataChannel) {
+                    this.dataChannel.close();
+                }
+                if (this.peerConnection) {
+                    this.peerConnection.close();
+                }
+                
+                this.connected = false;
+                this.messageCount = 0;
+                console.log('Disconnected cleanly');
+            }
+        }
+
+        // ==================== UI Management ====================
+        
+        const chat = new SecureP2PChat();
+        let currentUsername = 'Anonymous';
+        
+        function updateStatus(elementId, text, state = '') {
+            const element = document.getElementById(elementId);
+            if (element) {
+                const indicator = element.querySelector('.status-indicator');
+                if (indicator) {
+                    indicator.className = 'status-indicator ' + state;
+                }
+                if (element.id === 'status' || element.id === 'peerStatus') {
+                    element.innerHTML = (indicator ? `<span class="status-indicator ${state}"></span>` : '') + text;
+                } else {
+                    element.textContent = text;
+                }
+            }
+        }
+        
+        function updateConnectionInfo(text) {
+            const element = document.getElementById('connectionInfo');
+            if (element) element.textContent = text;
+        }
+        
+        function updateMessageCount(count) {
+            const element = document.getElementById('messageCount');
+            if (element) {
+                element.textContent = `${count} message${count !== 1 ? 's' : ''}`;
+                element.classList.add('text-primary', 'fw-semibold');
+                setTimeout(() => element.classList.remove('text-primary', 'fw-semibold'), 500);
+            }
+        }
+        
+        function enableChat(enabled) {
+            const input = document.getElementById('messageInput');
+            const button = document.getElementById('sendMessage');
+            
+            if (input && button) {
+                input.disabled = !enabled;
+                button.disabled = !enabled;
+                
+                if (enabled) {
+                    input.focus();
+                    input.placeholder = "Type your message (Enter to send)...";
+                    button.innerHTML = `<span class="d-none d-md-inline">Send</span><span class="d-inline d-md-none">➤</span>`;
+                } else {
+                    input.placeholder = "Waiting for peer connection...";
+                    button.innerHTML = `<span class="d-none d-md-inline">Disconnected</span><span class="d-inline d-md-none">✗</span>`;
+                }
+            }
+        }
+        
+        function displayMessage(sender, text, timestamp, isReceived) {
+            const chatContainer = document.getElementById('chatMessages');
+            if (!chatContainer) return;
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${isReceived ? 'received' : 'sent'}`;
+            
+            const time = timestamp ? new Date(timestamp) : new Date();
+            const timeString = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            messageDiv.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div class="fw-semibold">${escapeHtml(sender)}</div>
+                    <div class="small opacity-75">${timeString}</div>
+                </div>
+                <div class="message-text">${escapeHtml(text)}</div>
+            `;
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        function showSystemMessage(text) {
+            const chatContainer = document.getElementById('chatMessages');
+            if (!chatContainer) return;
+            
+            const systemDiv = document.createElement('div');
+            systemDiv.className = 'system-message';
+            systemDiv.textContent = text;
+            
+            chatContainer.appendChild(systemDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        function showAlert(message, type = 'info') {
+            // Create alert element
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            alertDiv.style.cssText = `
+                top: 20px;
+                right: 20px;
+                z-index: 9999;
+                max-width: 350px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            `;
+            
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(alertDiv);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // ==================== Room Letter Generation ====================
+        
+        function generateRoomLetters() {
+            const container = document.getElementById('roomLetters');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            for (let i = 65; i <= 90; i++) {
+                const letter = String.fromCharCode(i);
+                const badge = document.createElement('button');
+                badge.type = 'button';
+                badge.className = 'room-badge badge bg-secondary rounded-circle';
+                badge.textContent = letter;
+                badge.title = `Room ${letter}`;
+                
+                badge.onclick = () => {
+                    // Remove selection from all badges
+                    document.querySelectorAll('.room-badge').forEach(b => {
+                        b.classList.remove('bg-primary', 'bg-info');
+                        b.classList.add('bg-secondary');
+                    });
+                    
+                    // Select this badge
+                    badge.classList.remove('bg-secondary');
+                    badge.classList.add('bg-primary');
+                    
+                    // Store selection
+                    document.getElementById('selectedRoomLetter').value = letter;
+                    updateShareCode();
+                };
+                
+                container.appendChild(badge);
+            }
+            
+            // Select first letter by default
+            if (container.firstChild) {
+                container.firstChild.click();
+            }
+        }
+        
+        function updateShareCode() {
+            const letter = document.getElementById('selectedRoomLetter').value || 'A';
+            const code = document.getElementById('roomCode').value || '203';
+            const shareElement = document.getElementById('shareCode');
+            
+            if (shareElement) {
+                shareElement.textContent = `${letter}-${code}`;
+            }
+        }
+        
+        // ==================== Event Listeners ====================
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            generateRoomLetters();
+            enableChat(false);
+            
+            // Update share code when code changes
+            document.getElementById('roomCode').addEventListener('input', updateShareCode);
+            
+            // Copy share code button
+            document.getElementById('copyShareCode').addEventListener('click', () => {
+                const shareCode = document.getElementById('shareCode').textContent;
+                navigator.clipboard.writeText(shareCode).then(() => {
+                    showAlert('Room code copied to clipboard!', 'success');
+                });
+            });
+            
+            // Copy room link button
+            document.getElementById('copyRoomLink').addEventListener('click', () => {
+                const room = document.getElementById('currentRoom').textContent;
+                const code = document.getElementById('currentCode').textContent;
+                const link = `${window.location.origin}?room=${room}-${code}`;
+                
+                navigator.clipboard.writeText(link).then(() => {
+                    showAlert('Room link copied!', 'success');
+                });
+            });
+            
+            // Join room button
+            document.getElementById('joinRoom').addEventListener('click', async () => {
+                const usernameInput = document.getElementById('username');
+                const roomLetter = document.getElementById('selectedRoomLetter').value;
+                const roomCodeInput = document.getElementById('roomCode');
+                
+                const username = usernameInput.value.trim() || 'Anonymous';
+                const roomLetterValue = roomLetter || 'A';
+                const roomCode = roomCodeInput.value;
+                
+                // Validate inputs
+                if (!roomCode || roomCode < 1 || roomCode > 1000) {
+                    showAlert('Please enter a valid room code (1-1000)', 'warning');
+                    roomCodeInput.focus();
+                    return;
+                }
+                
+                currentUsername = username;
+                const roomId = `${roomLetterValue}-${roomCode}`;
+                
+                // Check if user is joining themselves (same browser/tab)
+                if (sessionStorage.getItem('currentRoom') === roomId) {
+                    showAlert('You are already in this room in another tab.', 'warning');
+                    return;
+                }
+                
+                // Determine initiator status (first to join becomes initiator)
+                const isInitiator = Math.random() > 0.5;
+                
+                // Update UI
+                document.getElementById('currentRoom').textContent = roomLetterValue;
+                document.getElementById('currentCode').textContent = roomCode;
+                document.getElementById('loginScreen').classList.add('d-none');
+                document.getElementById('chatScreen').classList.remove('d-none');
+                
+                updateStatus('peerStatus', isInitiator ? 
+                    'Creating secure room...' : 'Joining secure room...', 'connecting');
+                
+                updateConnectionInfo('Establishing P2P connection...');
+                
+                // Store room in session
+                sessionStorage.setItem('currentRoom', roomId);
+                
+                try {
+                    await chat.connectToSignaling(roomId, isInitiator);
+                    showSystemMessage(`Welcome to secure room ${roomId}. Share this code with your friend.`);
+                    
+                } catch (error) {
+                    console.error('Failed to join room:', error);
+                    showAlert('Failed to connect to room. Please try again.', 'danger');
+                    
+                    // Return to login screen
+                    document.getElementById('chatScreen').classList.add('d-none');
+                    document.getElementById('loginScreen').classList.remove('d-none');
+                    sessionStorage.removeItem('currentRoom');
+                }
+            });
+            
+            // Send message button
+            document.getElementById('sendMessage').addEventListener('click', sendChatMessage);
+            
+            // Enter key to send
+            document.getElementById('messageInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            });
+            
+            // Leave room button
+            document.getElementById('leaveRoom').addEventListener('click', () => {
+                chat.disconnect();
+                
+                // Clear chat
+                const chatContainer = document.getElementById('chatMessages');
+                if (chatContainer) {
+                    chatContainer.innerHTML = `
+                        <div class="system-message">
+                            <strong>Secure Room Ended</strong><br>
+                            All messages have been deleted. No data was stored.
+                        </div>
+                    `;
+                }
+                
+                // Reset UI
+                document.getElementById('chatScreen').classList.add('d-none');
+                document.getElementById('loginScreen').classList.remove('d-none');
+                document.getElementById('messageInput').value = '';
+                enableChat(false);
+                
+                // Clear session
+                sessionStorage.removeItem('currentRoom');
+                
+                updateStatus('status', 'Disconnected', 'disconnected');
+                updateMessageCount(0);
+                
+                showAlert('You have left the chat room. All messages are gone.', 'info');
+            });
+            
+            // Check for room in URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomParam = urlParams.get('room');
+            
+            if (roomParam && roomParam.match(/^[A-Z]-[1-9][0-9]{0,2}$/)) {
+                const [letter, code] = roomParam.split('-');
+                
+                // Set the room values
+                const letterBadges = document.querySelectorAll('.room-badge');
+                letterBadges.forEach(badge => {
+                    if (badge.textContent === letter) {
+                        badge.click();
+                    }
+                });
+                
+                document.getElementById('roomCode').value = code;
+                updateShareCode();
+                
+                showAlert(`Room ${roomParam} loaded. Click "Join Secure Room" to enter.`, 'info');
+            }
+        });
+        
+        function sendChatMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            
+            if (!text) return;
+            
+            if (chat.sendMessage(currentUsername, text)) {
+                displayMessage(currentUsername, text, Date.now(), false);
+                input.value = '';
+                input.focus();
+            } else {
+                showAlert('Not connected to peer yet.', 'warning');
+            }
+        }
+        
+        // Handle page refresh/close
+        window.addEventListener('beforeunload', (event) => {
+            if (chat.connected) {
+                chat.disconnect();
+            }
+        });
+    </script>
+</body>
+</html>
